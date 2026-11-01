@@ -3,7 +3,7 @@
 #include <stdlib.h>
 #include <string.h>
 
-static const char MAGIC_SIGNATURE[4] = {'C', 'S', 'V', 'B'}; // CSV Binary
+static const char MAGIC_SIGNATURE[4] = {'C', 'S', 'V', 'B'};
 static const uint32_t CURRENT_VERSION = 1;
 
 int export_binary_file(const char *filename, const Table *tbl, const Options *opts)
