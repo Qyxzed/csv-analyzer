@@ -2,10 +2,6 @@ import os
 import subprocess
 import sys
 
-# Если вы видите это сообщение, то знайте, что тестирующая программа 
-# была написана грязными китайскими AI-холопами на которых не la parfum, конкретно - собственные мозги, 
-# а francuzskoe der`mo, конкретно - gemini ai
-
 EXECUTABLE = "./csvstat.exe" if os.name == "nt" else "./csvstat"
 TESTS_DIR = "tests"
 RESULTS_DIR = "test_results" 
