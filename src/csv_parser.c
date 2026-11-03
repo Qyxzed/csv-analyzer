@@ -10,28 +10,19 @@ static bool is_valid_int(const char *str, int64_t *val_out, bool *overflow_out)
 {
     if (!str || *str == '\0')
         return false;
-
-    size_t len = strlen(str);
-    if (len > 25)
-        return false;
-
     char *endptr = NULL;
     errno = 0;
     long long v = strtoll(str, &endptr, 10);
-
     if (overflow_out)
         *overflow_out = false;
-
     if (errno == ERANGE)
     {
         if (overflow_out)
             *overflow_out = true;
         return false;
     }
-
     if (*endptr != '\0')
         return false;
-
     if (val_out)
         *val_out = (int64_t)v;
     return true;
@@ -44,11 +35,27 @@ static bool is_valid_double(const char *str, double *val_out, bool allow_sci)
 
     if (!allow_sci)
     {
-        for (const char *p = str; *p; p++)
+        bool has_dot = false, has_digit_before = false, has_digit_after = false;
+        const char *p = str;
+        if (*p == '+' || *p == '-')
+            p++;
+        while (isdigit((unsigned char)*p))
         {
-            if (*p == 'e' || *p == 'E')
-                return false;
+            p++;
+            has_digit_before = true;
         }
+        if (*p == '.')
+        {
+            p++;
+            has_dot = true;
+        }
+        while (isdigit((unsigned char)*p))
+        {
+            p++;
+            has_digit_after = true;
+        }
+        if (*p != '\0' || !has_dot || !has_digit_before || !has_digit_after)
+            return false;
     }
 
     char *endptr = NULL;
@@ -58,7 +65,6 @@ static bool is_valid_double(const char *str, double *val_out, bool allow_sci)
         return false;
     if (isnan(v) || isinf(v))
         return false;
-
     if (val_out)
         *val_out = v;
     return true;
@@ -76,61 +82,72 @@ static bool is_blank_string(const char *str)
     return true;
 }
 
+static char *trim_whitespace(char *str)
+{
+    char *end;
+    while (isspace((unsigned char)*str))
+        str++;
+    if (*str == 0)
+        return str;
+    end = str + strlen(str) - 1;
+    while (end > str && isspace((unsigned char)*end))
+        end--;
+    end[1] = '\0';
+    return str;
+}
+
 static void determine_cell_type(Cell *cell, const Options *opts)
 {
-    if (!cell->is_quoted && is_blank_string(cell->text_val))
+    if (cell->is_quoted)
     {
-        cell->type = TYPE_NULL;
-        cell->is_null = true;
-        free(cell->text_val);
-        cell->text_val = strdup("");
-        cell->len_bytes = 0;
-        cell->is_empty_str = true;
-        return;
+        cell->len_bytes = strlen(cell->text_val);
+        cell->is_empty_str = (cell->len_bytes == 0);
+        cell->is_null = false;
     }
-
-    if (cell->is_null)
+    else
     {
-        cell->type = TYPE_NULL;
-        return;
-    }
-
-    char *trimmed_val = strdup(cell->text_val);
-    if (!cell->is_quoted)
-    {
-        char *start = trimmed_val;
-        while (*start && isspace((unsigned char)*start))
-            start++;
-        char *end = start + strlen(start) - 1;
-        while (end > start && isspace((unsigned char)*end))
-            *end-- = '\0';
-        memmove(trimmed_val, start, strlen(start) + 1);
+        char *trimmed = trim_whitespace(cell->text_val);
+        if (*trimmed == '\0')
+        {
+            cell->type = TYPE_NULL;
+            cell->is_null = true;
+            cell->is_empty_str = true;
+            cell->len_bytes = 0;
+            return;
+        }
+        if (trimmed != cell->text_val)
+        {
+            memmove(cell->text_val, trimmed, strlen(trimmed) + 1);
+        }
+        cell->len_bytes = strlen(cell->text_val);
+        cell->is_empty_str = false;
+        cell->is_null = false;
     }
 
     bool is_overflow = false;
-    if (is_valid_int(trimmed_val, &cell->int_val, &is_overflow))
+    int64_t i_val;
+    double d_val;
+
+    if (is_valid_int(cell->text_val, &i_val, &is_overflow))
     {
         cell->type = TYPE_INT;
-        cell->double_val = (double)cell->int_val;
-        free(trimmed_val);
+        cell->int_val = i_val;
+        cell->double_val = (double)i_val;
         return;
     }
-
     if (is_overflow)
     {
-        free(trimmed_val);
         cell->type = TYPE_STRING;
         return;
     }
 
-    if (is_valid_double(trimmed_val, &cell->double_val, opts->scientific))
+    if (is_valid_double(cell->text_val, &d_val, opts->scientific))
     {
         cell->type = TYPE_DOUBLE;
-        free(trimmed_val);
+        cell->double_val = d_val;
         return;
     }
 
-    free(trimmed_val);
     cell->type = TYPE_STRING;
 }
 
@@ -143,9 +160,7 @@ static void free_raw_data(char ***raw_table, bool **raw_quoted, size_t *row_col_
         if (raw_table[k])
         {
             for (size_t j = 0; j < row_col_counts[k]; j++)
-            {
                 free(raw_table[k][j]);
-            }
             free(raw_table[k]);
         }
         if (raw_quoted)
@@ -170,22 +185,24 @@ int parse_csv_file(const char *filename, const Options *opts, Table *tbl)
     if (fseek(f, 0, SEEK_END) != 0)
     {
         fclose(f);
-        fprintf(stderr, "Error: seek failed\n");
         return 1;
     }
-
     long fsize = ftell(f);
-    if (fseek(f, 0, SEEK_SET) != 0)
-    {
-        fclose(f);
-        fprintf(stderr, "Error: seek failed\n");
-        return 1;
-    }
-
     if (fsize < 0)
     {
         fclose(f);
-        fprintf(stderr, "Error: incorrect stream or stream pointer to opened file\n");
+        return 1;
+    }
+    if (fseek(f, 0, SEEK_SET) != 0)
+    {
+        fclose(f);
+        return 1;
+    }
+
+    if (fsize == 0)
+    {
+        fclose(f);
+        fprintf(stderr, "Error: empty file\n");
         return 1;
     }
 
@@ -193,10 +210,8 @@ int parse_csv_file(const char *filename, const Options *opts, Table *tbl)
     if (!buffer)
     {
         fclose(f);
-        fprintf(stderr, "Error: memory allocation error\n");
         return 1;
     }
-
     size_t read_bytes = fread(buffer, 1, (size_t)fsize, f);
     fclose(f);
     buffer[read_bytes] = '\0';
@@ -215,18 +230,13 @@ int parse_csv_file(const char *filename, const Options *opts, Table *tbl)
         free(raw_table);
         free(raw_quoted);
         free(row_col_counts);
-        fprintf(stderr, "Error: memory allocation error\n");
         return 1;
     }
 
-    size_t cur_row = 0;
-    size_t cur_col = 0;
-
+    size_t cur_row = 0, cur_col = 0;
     char **cur_row_fields = malloc(sizeof(char *) * max_cols);
     bool *cur_row_quoted = malloc(sizeof(bool) * max_cols);
-
-    size_t field_cap = 64;
-    size_t field_len = 0;
+    size_t field_cap = 64, field_len = 0;
     char *field_buf = malloc(field_cap);
 
     if (!cur_row_fields || !cur_row_quoted || !field_buf)
@@ -236,26 +246,17 @@ int parse_csv_file(const char *filename, const Options *opts, Table *tbl)
         free(cur_row_quoted);
         free(field_buf);
         free_raw_data(raw_table, raw_quoted, row_col_counts, cur_row);
-        fprintf(stderr, "Error: memory allocation error\n");
         return 1;
     }
+    field_buf[0] = '\0';
 
-    bool in_quotes = false;
-    bool field_is_quoted = false;
-    bool expect_delimiter = false;
-    bool ended_with_delimiter = false;
+    bool in_quotes = false, field_is_quoted = false, expect_delimiter = false;
 
     for (size_t i = 0; i <= read_bytes; i++)
     {
         char c = buffer[i];
-
         if (c == '\0' && i < read_bytes)
             continue;
-
-        if (c == '\n' && i + 1 == read_bytes && cur_col == 0 && field_len == 0 && !ended_with_delimiter)
-        {
-            break;
-        }
 
         if (in_quotes)
         {
@@ -278,15 +279,7 @@ int parse_csv_file(const char *filename, const Options *opts, Table *tbl)
                         field_cap *= 2;
                         field_buf = realloc(field_buf, field_cap);
                     }
-                    if (cur_row == 0)
-                    {
-                        field_buf[field_len++] = '"';
-                        field_buf[field_len++] = '"';
-                    }
-                    else
-                    {
-                        field_buf[field_len++] = '"';
-                    }
+                    field_buf[field_len++] = '"';
                     i++;
                 }
                 else
@@ -326,9 +319,7 @@ int parse_csv_file(const char *filename, const Options *opts, Table *tbl)
                     continue;
                 }
                 else if (isspace((unsigned char)c))
-                {
                     continue;
-                }
                 else
                 {
                     free(buffer);
@@ -344,13 +335,15 @@ int parse_csv_file(const char *filename, const Options *opts, Table *tbl)
             if (c == '"')
             {
                 field_buf[field_len] = '\0';
-                if (field_len == 0 || is_blank_string(field_buf))
+                char *check = field_buf;
+                while (*check && isspace((unsigned char)*check))
+                    check++;
+                if (*check == '\0')
                 {
                     field_len = 0;
                     field_buf[0] = '\0';
                     in_quotes = true;
                     field_is_quoted = true;
-                    ended_with_delimiter = false;
                 }
                 else
                 {
@@ -366,11 +359,6 @@ int parse_csv_file(const char *filename, const Options *opts, Table *tbl)
             else if (c == opts->delimiter || c == '\n' || c == '\r' || c == '\0')
             {
                 expect_delimiter = false;
-                if (c == opts->delimiter)
-                    ended_with_delimiter = true;
-                else
-                    ended_with_delimiter = false;
-
                 if (c == '\r')
                 {
                     if (i + 1 < read_bytes && buffer[i + 1] == '\n')
@@ -379,27 +367,6 @@ int parse_csv_file(const char *filename, const Options *opts, Table *tbl)
                 }
 
                 field_buf[field_len] = '\0';
-
-                if (field_len > 0 && field_buf[field_len - 1] == '\r')
-                {
-                    field_buf[field_len - 1] = '\0';
-                    field_len--;
-                }
-
-                if (!field_is_quoted)
-                {
-                    char *start = field_buf;
-                    while (*start && isspace((unsigned char)*start))
-                        start++;
-                    char *end = field_buf + strlen(field_buf);
-                    while (end > start && isspace((unsigned char)*(end - 1)))
-                        end--;
-                    *end = '\0';
-                    if (start != field_buf)
-                    {
-                        memmove(field_buf, start, end - start + 1);
-                    }
-                }
 
                 if (cur_col >= max_cols)
                 {
@@ -411,33 +378,12 @@ int parse_csv_file(const char *filename, const Options *opts, Table *tbl)
                 cur_row_fields[cur_col] = strdup(field_buf);
                 cur_row_quoted[cur_col] = field_is_quoted;
                 cur_col++;
-
                 field_len = 0;
                 field_is_quoted = false;
+                field_buf[0] = '\0'; 
 
                 if (c == '\n' || c == '\0')
                 {
-                    if (ended_with_delimiter && (c == '\n' || c == '\0'))
-                    {
-                        if (cur_col >= max_cols)
-                        {
-                            max_cols *= 2;
-                            cur_row_fields = realloc(cur_row_fields, sizeof(char *) * max_cols);
-                            cur_row_quoted = realloc(cur_row_quoted, sizeof(bool) * max_cols);
-                        }
-                        cur_row_fields[cur_col] = strdup("");
-                        cur_row_quoted[cur_col] = false;
-                        cur_col++;
-                        ended_with_delimiter = false;
-                    }
-
-                    if (c == '\0' && cur_col == 1 && strlen(cur_row_fields[0]) == 0 && cur_row == 0 && read_bytes == 0)
-                    {
-                        free(cur_row_fields[0]);
-                        cur_col = 0;
-                        break;
-                    }
-
                     if (cur_row >= max_rows)
                     {
                         max_rows *= 2;
@@ -455,6 +401,14 @@ int parse_csv_file(const char *filename, const Options *opts, Table *tbl)
                     max_cols = 16;
                     cur_row_fields = malloc(sizeof(char *) * max_cols);
                     cur_row_quoted = malloc(sizeof(bool) * max_cols);
+                    if (!cur_row_fields || !cur_row_quoted)
+                    {
+                        free(buffer);
+                        free_raw_data(raw_table, raw_quoted, row_col_counts, cur_row);
+                        free(field_buf);
+                        fprintf(stderr, "Error: memory allocation error\n");
+                        return 1;
+                    }
 
                     if (c == '\0')
                         break;
@@ -468,7 +422,6 @@ int parse_csv_file(const char *filename, const Options *opts, Table *tbl)
                     field_buf = realloc(field_buf, field_cap);
                 }
                 field_buf[field_len++] = c;
-                ended_with_delimiter = false;
             }
         }
     }
@@ -481,8 +434,16 @@ int parse_csv_file(const char *filename, const Options *opts, Table *tbl)
     if (cur_row == 0)
     {
         free_raw_data(raw_table, raw_quoted, row_col_counts, cur_row);
-        fprintf(stderr, "There is something terrible.\n");
         return 1;
+    }
+
+    while (cur_row > 1 && row_col_counts[cur_row - 1] == 1 &&
+           strlen(raw_table[cur_row - 1][0]) == 0 && !raw_quoted[cur_row - 1][0])
+    {
+        free(raw_table[cur_row - 1][0]);
+        free(raw_table[cur_row - 1]);
+        free(raw_quoted[cur_row - 1]);
+        cur_row--;
     }
 
     size_t num_cols = row_col_counts[0];
@@ -547,17 +508,44 @@ int parse_csv_file(const char *filename, const Options *opts, Table *tbl)
     tbl->num_cols = num_cols;
     tbl->num_rows = cur_row - 1;
     tbl->cols = malloc(sizeof(Column) * num_cols);
+    if (!tbl->cols)
+    {
+        free_raw_data(raw_table, raw_quoted, row_col_counts, cur_row);
+        return 1;
+    }
 
     for (size_t c = 0; c < num_cols; c++)
     {
-        tbl->cols[c].name = strdup(raw_table[0][c]);
+        char *hdr = raw_table[0][c];
+        if (raw_quoted[0][c])
+        {
+            tbl->cols[c].name = strdup(hdr);
+        }
+        else
+        {
+            char *trimmed_hdr = trim_whitespace(hdr);
+            tbl->cols[c].name = strdup(trimmed_hdr);
+        }
         tbl->cols[c].type = TYPE_NULL;
     }
 
     tbl->cells = malloc(sizeof(Cell *) * tbl->num_rows);
+    if (!tbl->cells)
+    {
+        free_table(tbl);
+        free_raw_data(raw_table, raw_quoted, row_col_counts, cur_row);
+        return 1;
+    }
+
     for (size_t r = 0; r < tbl->num_rows; r++)
     {
         tbl->cells[r] = malloc(sizeof(Cell) * num_cols);
+        if (!tbl->cells[r])
+        {
+            free_table(tbl);
+            free_raw_data(raw_table, raw_quoted, row_col_counts, cur_row);
+            return 1;
+        }
         for (size_t c = 0; c < num_cols; c++)
         {
             char *raw_val = raw_table[r + 1][c];
@@ -568,7 +556,7 @@ int parse_csv_file(const char *filename, const Options *opts, Table *tbl)
             cell->len_bytes = strlen(raw_val);
             cell->is_empty_str = (cell->len_bytes == 0);
             cell->is_quoted = was_quoted;
-            cell->is_null = (cell->is_empty_str && !cell->is_quoted);
+            cell->is_null = false;
 
             determine_cell_type(cell, opts);
         }
@@ -587,26 +575,18 @@ int parse_csv_file(const char *filename, const Options *opts, Table *tbl)
 
             has_non_null = true;
             if (col_type == TYPE_NULL)
-            {
                 col_type = cell_type;
-            }
             else if (col_type == TYPE_INT && cell_type == TYPE_DOUBLE)
-            {
                 col_type = TYPE_DOUBLE;
-            }
             else if (col_type == TYPE_DOUBLE && cell_type == TYPE_INT)
             {
-                // оставляем DOUBLE
             }
             else if (col_type != cell_type)
-            {
                 col_type = TYPE_STRING;
-            }
         }
         tbl->cols[c].type = has_non_null ? col_type : TYPE_NULL;
     }
 
     free_raw_data(raw_table, raw_quoted, row_col_counts, cur_row);
-
     return 0;
 }

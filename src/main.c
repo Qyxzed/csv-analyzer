@@ -57,7 +57,16 @@ static void print_schema(const Table *tbl)
         else if (tbl->cols[c].type == TYPE_STRING)
             type_str = "STRING";
 
-        printf("%zu \"%s\" %s\n", c, tbl->cols[c].name, type_str);
+        printf("%zu \"", c);
+        char *cell_name = tbl->cols[c].name;
+        for (size_t i = 0; i < strlen(cell_name); i++)
+        {
+            if (cell_name[i] == '"')
+                printf("\"");
+            printf("%c", cell_name[i]);
+        }
+        printf("\" %s\n", type_str);
+        // printf("\"\n%s\" %s\n", c, tbl->cols[c].name, type_str);
     }
 }
 
