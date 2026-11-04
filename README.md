@@ -11,7 +11,7 @@ gcc -Wall -Wextra -std=c99 -I. src/types.c src/csv_parser.c src/binary_io.c src/
 **​make release** — Optimized release build.  
 **​make clean** — Remove compiled files.
 
-#STATE MACHINE
+# STATE MACHINE
 ```mermaid
 stateDiagram-v2
     direction LR
