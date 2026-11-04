@@ -32,7 +32,7 @@ typedef struct {
     size_t num_rows;
     size_t num_cols;
     Column *cols;
-    Cell **cells;       // cells[row][col]
+    Cell **cells;      
 } Table;
 
 typedef struct {
