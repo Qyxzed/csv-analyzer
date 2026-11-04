@@ -11,7 +11,7 @@ gcc -Wall -Wextra -std=c99 -I. src/types.c src/csv_parser.c src/binary_io.c src/
 **​make release** — Optimized release build.  
 **​make clean** — Remove compiled files.
 
-#STATE MACHINE
+# STATE MACHINE
 ```mermaid
 stateDiagram-v2
     direction LR
@@ -22,19 +22,19 @@ stateDiagram-v2
     state "После кавычки" as S_QUOTE_END
     state "Ошибка" as S_ERROR
 
-    S_NORMAL --> S_QUOTED : Символ " \n(если буфер пуст или из пробелов)
-    S_NORMAL --> S_ERROR : Символ " \n(если в буфере уже есть символы)
-    S_NORMAL --> S_NORMAL : Разделитель (,) \n[Сохранить поле]
-    S_NORMAL --> S_NORMAL : \\n или \\0 \n[Сохранить поле + Завершить строку]
-    S_NORMAL --> S_NORMAL : Любой другой символ \n[Добавить в буфер]
+    S_NORMAL --> S_QUOTED : Символ " (если буфер пуст или из пробелов)
+    S_NORMAL --> S_ERROR : Символ " (если в буфере уже есть символы)
+    S_NORMAL --> S_NORMAL : Разделитель (,) [Сохранить поле]
+    S_NORMAL --> S_NORMAL : \\n или \\0 [Сохранить поле + Завершить строку]
+    S_NORMAL --> S_NORMAL : Любой другой символ [Добавить в буфер]
 
-    S_QUOTED --> S_QUOTED : Любой символ (включая , и \\n при --multiline) \n[Добавить в буфер]
-    S_QUOTED --> S_QUOTED : Двойная кавычка ("") \n[Добавить одну " в буфер]
-    S_QUOTED --> S_QUOTE_END : Одиночная кавычка (") \n[Закрыть кавычки]
-    S_QUOTED --> S_ERROR : \\0 (Конец файла) \n[Незакрытая кавычка]
+    S_QUOTED --> S_QUOTED : Любой символ (включая , и \\n при --multiline) [Добавить в буфер]
+    S_QUOTED --> S_QUOTED : Двойная кавычка ("") [Добавить одну " в буфер]
+    S_QUOTED --> S_QUOTE_END : Одиночная кавычка (") [Закрыть кавычки]
+    S_QUOTED --> S_ERROR : \\0 (Конец файла) [Незакрытая кавычка]
     S_QUOTED --> S_ERROR : \\n (если НЕ --multiline)
 
-    S_QUOTE_END --> S_NORMAL : Разделитель (,) \n[Сохранить поле]
-    S_QUOTE_END --> S_NORMAL : \\n или \\0 \n[Сохранить поле + Завершить строку]
-    S_QUOTE_END --> S_QUOTE_END : Пробелы / Табы \n[Игнорировать]
-    S_QUOTE_END --> S_ERROR : Любой другой символ \n[Данные после кавычки]
+    S_QUOTE_END --> S_NORMAL : Разделитель (,) [Сохранить поле]
+    S_QUOTE_END --> S_NORMAL : \\n или \\0 [Сохранить поле + Завершить строку]
+    S_QUOTE_END --> S_QUOTE_END : Пробелы / Табы [Игнорировать]
+    S_QUOTE_END --> S_ERROR : Любой другой символ [Данные после кавычки]
