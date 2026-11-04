@@ -66,7 +66,6 @@ static void print_schema(const Table *tbl)
             printf("%c", cell_name[i]);
         }
         printf("\" %s\n", type_str);
-        // printf("\"\n%s\" %s\n", c, tbl->cols[c].name, type_str);
     }
 }
 
