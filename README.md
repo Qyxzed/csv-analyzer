@@ -11,7 +11,7 @@ gcc -Wall -Wextra -std=c99 -I. src/types.c src/csv_parser.c src/binary_io.c src/
 **​make release** — Optimized release build.  
 **​make clean** — Remove compiled files.
 
-# STATE MACHINE
+# SYMBOL STATE MACHINE
 ```mermaid
 stateDiagram-v2
     direction LR
@@ -38,3 +38,57 @@ stateDiagram-v2
     S_QUOTE_END --> S_NORMAL : \\n или \\0 [Сохранить поле + Завершить строку]
     S_QUOTE_END --> S_QUOTE_END : Пробелы / Табы [Игнорировать]
     S_QUOTE_END --> S_ERROR : Любой другой символ [Данные после кавычки]
+```
+# CELL TYPE STATE MACHINE
+```mermaid
+stateDiagram-v2
+    direction LR
+    [*] --> S_START
+
+    state "Начало" as S_START
+    state "Знак" as S_SIGN
+    state "Целая часть" as S_INT
+    state "Точка" as S_DOT
+    state "Дробная часть" as S_FRAC
+    state "Экспонента" as S_EXP
+    state "Знак эксп." as S_EXP_SIGN
+    state "Цифры эксп." as S_EXP_DIGITS
+    state "Строка" as S_STRING
+    state "NULL" as S_NULL
+
+    S_START --> S_SIGN : '+' или '-'
+    S_START --> S_INT : '0'-'9'
+    S_START --> S_STRING : любой другой символ
+    S_START --> S_NULL : конец строки (пустая, без кавычек)
+
+    S_SIGN --> S_INT : '0'-'9'
+    S_SIGN --> S_STRING : любой другой символ
+
+    S_INT --> S_INT : '0'-'9'
+    S_INT --> S_DOT : '.'
+    S_INT --> S_EXP : 'e' или 'E' (только с --scientific)
+    S_INT --> [*] : конец строки (Результат: INT)
+    S_INT --> S_STRING : любой другой символ
+
+    S_DOT --> S_FRAC : '0'-'9'
+    S_DOT --> S_STRING : любой другой символ или конец строки
+
+    S_FRAC --> S_FRAC : '0'-'9'
+    S_FRAC --> S_EXP : 'e' или 'E' (только с --scientific)
+    S_FRAC --> [*] : конец строки (Результат: DOUBLE)
+    S_FRAC --> S_STRING : любой другой символ
+
+    S_EXP --> S_EXP_SIGN : '+' или '-'
+    S_EXP --> S_EXP_DIGITS : '0'-'9'
+    S_EXP --> S_STRING : любой другой символ
+
+    S_EXP_SIGN --> S_EXP_DIGITS : '0'-'9'
+    S_EXP_SIGN --> S_STRING : любой другой символ
+
+    S_EXP_DIGITS --> S_EXP_DIGITS : '0'-'9'
+    S_EXP_DIGITS --> [*] : конец строки (Результат: DOUBLE)
+    S_EXP_DIGITS --> S_STRING : любой другой символ
+
+    S_STRING --> [*] : Результат: STRING
+    S_NULL --> [*] : Результат: NULL
+```
