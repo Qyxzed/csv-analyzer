@@ -160,6 +160,7 @@ int import_binary_file(const char *filename, Table *tbl, Options *opts)
         size_t name_len;
         if (fread(&name_len, sizeof(size_t), 1, f) != 1)
             goto fail_cleanup;
+
         if (name_len > 1048576)
             goto fail_cleanup;
 
@@ -186,6 +187,14 @@ int import_binary_file(const char *filename, Table *tbl, Options *opts)
         {
             Cell *cell = &tbl->cells[r][c];
 
+            cell->text_val = NULL;
+            cell->int_val = 0;
+            cell->double_val = 0.0;
+            cell->len_bytes = 0;
+            cell->is_null = false;
+            cell->is_empty_str = false;
+            cell->is_quoted = false;
+
             if (fread(&cell->type, sizeof(DataType), 1, f) != 1 ||
                 fread(&cell->is_null, sizeof(bool), 1, f) != 1 ||
                 fread(&cell->is_quoted, sizeof(bool), 1, f) != 1 ||
@@ -199,6 +208,7 @@ int import_binary_file(const char *filename, Table *tbl, Options *opts)
             size_t text_len;
             if (fread(&text_len, sizeof(size_t), 1, f) != 1)
                 goto fail_cleanup;
+
             if (text_len > 1048576)
                 goto fail_cleanup;
 
