@@ -15,6 +15,8 @@ int export_binary_file(const char *filename, const Table *tbl, const Options *op
     if (!f)
         return 0;
 
+    setvbuf(f, NULL, _IOFBF, 1 << 20);
+
     if (fwrite(MAGIC_SIGNATURE, sizeof(char), 4, f) != 4 ||
         fwrite(&CURRENT_VERSION, sizeof(uint32_t), 1, f) != 1)
     {
@@ -61,37 +63,28 @@ int export_binary_file(const char *filename, const Table *tbl, const Options *op
         for (size_t c = 0; c < tbl->num_cols; c++)
         {
             const Cell *cell = &tbl->cells[r][c];
+
             if (fwrite(&cell->type, sizeof(DataType), 1, f) != 1 ||
                 fwrite(&cell->is_null, sizeof(bool), 1, f) != 1 ||
                 fwrite(&cell->is_quoted, sizeof(bool), 1, f) != 1 ||
-                fwrite(&cell->is_empty_str, sizeof(bool), 1, f) != 1)
+                fwrite(&cell->is_empty_str, sizeof(bool), 1, f) != 1 ||
+                fwrite(&cell->int_val, sizeof(int64_t), 1, f) != 1 ||
+                fwrite(&cell->double_val, sizeof(double), 1, f) != 1)
             {
                 fclose(f);
                 return 0;
             }
 
-            if (cell->type == TYPE_INT || cell->type == TYPE_DOUBLE)
+            size_t text_len = cell->text_val ? strlen(cell->text_val) : 0;
+            if (fwrite(&text_len, sizeof(size_t), 1, f) != 1)
             {
-                if (fwrite(&cell->int_val, sizeof(int64_t), 1, f) != 1 ||
-                    fwrite(&cell->double_val, sizeof(double), 1, f) != 1)
-                {
-                    fclose(f);
-                    return 0;
-                }
+                fclose(f);
+                return 0;
             }
-            else
+            if (text_len > 0 && fwrite(cell->text_val, sizeof(char), text_len, f) != text_len)
             {
-                size_t text_len = cell->text_val ? strlen(cell->text_val) : 0;
-                if (fwrite(&text_len, sizeof(size_t), 1, f) != 1)
-                {
-                    fclose(f);
-                    return 0;
-                }
-                if (text_len > 0 && fwrite(cell->text_val, sizeof(char), text_len, f) != text_len)
-                {
-                    fclose(f);
-                    return 0;
-                }
+                fclose(f);
+                return 0;
             }
         }
     }
@@ -113,6 +106,8 @@ int import_binary_file(const char *filename, Table *tbl, Options *opts)
     FILE *f = fopen(filename, "rb");
     if (!f)
         return 0;
+
+    setvbuf(f, NULL, _IOFBF, 1 << 20);
 
     char sig[4];
     if (fread(sig, sizeof(char), 4, f) != 4 || memcmp(sig, MAGIC_SIGNATURE, 4) != 0)
@@ -165,7 +160,6 @@ int import_binary_file(const char *filename, Table *tbl, Options *opts)
         size_t name_len;
         if (fread(&name_len, sizeof(size_t), 1, f) != 1)
             goto fail_cleanup;
-
         if (name_len > 1048576)
             goto fail_cleanup;
 
@@ -191,50 +185,33 @@ int import_binary_file(const char *filename, Table *tbl, Options *opts)
         for (size_t c = 0; c < tbl->num_cols; c++)
         {
             Cell *cell = &tbl->cells[r][c];
-            cell->text_val = NULL;
-            cell->int_val = 0;
-            cell->double_val = 0.0;
-            cell->len_bytes = 0;
-            cell->is_null = false;
-            cell->is_empty_str = false;
-            cell->is_quoted = false;
 
             if (fread(&cell->type, sizeof(DataType), 1, f) != 1 ||
                 fread(&cell->is_null, sizeof(bool), 1, f) != 1 ||
                 fread(&cell->is_quoted, sizeof(bool), 1, f) != 1 ||
-                fread(&cell->is_empty_str, sizeof(bool), 1, f) != 1)
+                fread(&cell->is_empty_str, sizeof(bool), 1, f) != 1 ||
+                fread(&cell->int_val, sizeof(int64_t), 1, f) != 1 ||
+                fread(&cell->double_val, sizeof(double), 1, f) != 1)
             {
                 goto fail_cleanup;
             }
 
-            if (cell->type == TYPE_INT || cell->type == TYPE_DOUBLE)
+            size_t text_len;
+            if (fread(&text_len, sizeof(size_t), 1, f) != 1)
+                goto fail_cleanup;
+            if (text_len > 1048576)
+                goto fail_cleanup;
+
+            cell->text_val = malloc(text_len + 1);
+            if (!cell->text_val)
+                goto fail_cleanup;
+
+            if (text_len > 0 && fread(cell->text_val, sizeof(char), text_len, f) != text_len)
             {
-                if (fread(&cell->int_val, sizeof(int64_t), 1, f) != 1 ||
-                    fread(&cell->double_val, sizeof(double), 1, f) != 1)
-                {
-                    goto fail_cleanup;
-                }
+                goto fail_cleanup;
             }
-            else
-            {
-                size_t text_len;
-                if (fread(&text_len, sizeof(size_t), 1, f) != 1)
-                    goto fail_cleanup;
-
-                if (text_len > 1048576)
-                    goto fail_cleanup;
-
-                cell->text_val = malloc(text_len + 1);
-                if (!cell->text_val)
-                    goto fail_cleanup;
-
-                if (text_len > 0 && fread(cell->text_val, sizeof(char), text_len, f) != text_len)
-                {
-                    goto fail_cleanup;
-                }
-                cell->text_val[text_len] = '\0';
-                cell->len_bytes = text_len;
-            }
+            cell->text_val[text_len] = '\0';
+            cell->len_bytes = text_len;
         }
     }
 

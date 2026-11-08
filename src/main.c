@@ -9,38 +9,61 @@
 
 static void print_usage(const char *prog_name)
 {
-    fprintf(stderr, "Usage:\n");
-    fprintf(stderr, "  %s schema <file.csv> [options]\n", prog_name);
-    fprintf(stderr, "  %s stats <file.csv> [options]\n", prog_name);
-    fprintf(stderr, "  %s report <file.csv> <output.txt> [options]\n", prog_name);
-    fprintf(stderr, "  %s bin-import <file.csv> <file.bin> [options]\n", prog_name);
-    fprintf(stderr, "  %s bin-schema <file.bin>\n", prog_name);
-    fprintf(stderr, "  %s bin-stats <file.bin>\n", prog_name);
-    fprintf(stderr, "  %s bin-report <file.bin> <output.txt>\n", prog_name);
-    fprintf(stderr, "\nOptions:\n");
-    fprintf(stderr, "  --delimiter <char>   Field delimiter\n");
-    fprintf(stderr, "  --multiline          Allow multiline fields inside quotes\n");
-    fprintf(stderr, "  --scientific         Allow scientific number format\n");
+    printf("Usage:\n");
+    printf("  %s schema <file.csv> [options]\n", prog_name);
+    printf("  %s stats <file.csv> [options]\n", prog_name);
+    printf("  %s report <file.csv> <output.txt> [options]\n", prog_name);
+    printf("  %s bin-import <file.csv> <file.bin> [options]\n", prog_name);
+    printf("  %s bin-schema <file.bin>\n", prog_name);
+    printf("  %s bin-stats <file.bin>\n", prog_name);
+    printf("  %s bin-report <file.bin> <output.txt>\n", prog_name);
+    printf("\nOptions:\n");
+    printf("  --delimiter <char>   Field delimiter\n");
+    printf("  --multiline          Allow multiline fields inside quotes\n");
+    printf("  --scientific         Allow scientific number format\n");
 }
 
-static void parse_options(int argc, char **argv, int start_index, Options *opts)
+static int parse_options(int argc, char **argv, int start_index, Options *opts)
 {
     for (int i = start_index; i < argc; i++)
     {
+        bool for_delimiter = 0;
         if (strcmp(argv[i], "--multiline") == 0)
         {
+            if (opts->multiline)
+            {
+                fprintf(stderr, "Error: repetition of extra parameter %s.\n", argv[i]);
+                return 0;
+            }
             opts->multiline = true;
         }
         else if (strcmp(argv[i], "--scientific") == 0)
         {
+            if (opts->scientific)
+            {
+                fprintf(stderr, "Error: repetition of extra parameter %s.\n", argv[i]);
+                return 0;
+            }
             opts->scientific = true;
         }
         else if (strcmp(argv[i], "--delimiter") == 0 && i + 1 < argc)
         {
+            if (for_delimiter)
+            {
+                fprintf(stderr, "Error: repetition of extra parameter %s.\n", argv[i]);
+                return 0;
+            }
+            for_delimiter = true;
             opts->delimiter = argv[i + 1][0];
             i++;
         }
+        else if (!opts->delimiter)
+        {
+            fprintf(stderr, "Error: unknown extra parameter.\n");
+            return 0;
+        }
     }
+    return 1;
 }
 
 static void print_schema(const Table *tbl)
@@ -71,14 +94,22 @@ static void print_schema(const Table *tbl)
 
 int main(int argc, char **argv)
 {
-    if (argc < 3)
-    {
-        print_usage(argv[0]);
-        return 1;
-    }
-
     const char *command = argv[1];
-
+    if (!command)
+    {
+        fprintf(stderr, "Error: call without parameters.\n");
+        return 2;
+    }
+    if (strcmp(command, "--help") == 0)
+    {
+        if (argc < 3)
+        {
+            print_usage(argv[0]);
+            return 0;
+        }
+        fprintf(stderr, "Error: extra parameters.\n");
+        return 2;
+    }
     if (strcmp(command, "schema") == 0 || strcmp(command, "stats") == 0 ||
         strcmp(command, "report") == 0 || strcmp(command, "bin-import") == 0)
     {
@@ -88,7 +119,10 @@ int main(int argc, char **argv)
         init_options(&opts);
 
         int opt_start_idx = (strcmp(command, "report") == 0 || strcmp(command, "bin-import") == 0) ? 4 : 3;
-        parse_options(argc, argv, opt_start_idx, &opts);
+        if (!parse_options(argc, argv, opt_start_idx, &opts))
+        {
+            return 2;
+        }
 
         Table tbl;
         if (parse_csv_file(csv_filename, &opts, &tbl) != 0)
@@ -111,7 +145,7 @@ int main(int argc, char **argv)
             {
                 fprintf(stderr, "Error: report output file not specified.\n");
                 free_table(&tbl);
-                return 1;
+                return 2;
             }
             if (!cmd_report(&tbl, argv[3]))
             {
@@ -126,7 +160,7 @@ int main(int argc, char **argv)
             {
                 fprintf(stderr, "Error: binary output file not specified.\n");
                 free_table(&tbl);
-                return 1;
+                return 2;
             }
             if (!export_binary_file(argv[3], &tbl, &opts))
             {
@@ -167,7 +201,7 @@ int main(int argc, char **argv)
             {
                 fprintf(stderr, "Error: report output file not specified.\n");
                 free_table(&tbl);
-                return 1;
+                return 2;
             }
             if (!cmd_report(&tbl, argv[3]))
             {
@@ -182,6 +216,5 @@ int main(int argc, char **argv)
     }
 
     fprintf(stderr, "Error: unknown command '%s'.\n", command);
-    print_usage(argv[0]);
-    return 1;
+    return 2;
 }
