@@ -25,9 +25,9 @@ static void print_usage(const char *prog_name)
 
 static int parse_options(int argc, char **argv, int start_index, Options *opts)
 {
+    bool for_delimiter = false;
     for (int i = start_index; i < argc; i++)
     {
-        bool for_delimiter = 0;
         if (strcmp(argv[i], "--multiline") == 0)
         {
             if (opts->multiline)
@@ -46,18 +46,29 @@ static int parse_options(int argc, char **argv, int start_index, Options *opts)
             }
             opts->scientific = true;
         }
-        else if (strcmp(argv[i], "--delimiter") == 0 && i + 1 < argc)
+        else if (strcmp(argv[i], "--delimiter") == 0)
         {
             if (for_delimiter)
             {
                 fprintf(stderr, "Error: repetition of extra parameter %s.\n", argv[i]);
                 return 0;
             }
+            if (i + 1 >= argc || strlen(argv[i + 1]) != 1)
+            {
+                fprintf(stderr, "Error: --delimiter requires a single character.\n");
+                return 0;
+            }
+            char delim = argv[i + 1][0];
+            if (delim == '"' || delim == ' ' || delim == '\t' || delim == '\n' || delim == '\r')
+            {
+                fprintf(stderr, "Error: invalid delimiter character.\n");
+                return 0;
+            }
             for_delimiter = true;
-            opts->delimiter = argv[i + 1][0];
+            opts->delimiter = delim;
             i++;
         }
-        else if (!opts->delimiter)
+        else
         {
             fprintf(stderr, "Error: unknown extra parameter.\n");
             return 0;
@@ -115,6 +126,11 @@ int main(int argc, char **argv)
     {
 
         const char *csv_filename = argv[2];
+        if (!csv_filename)
+        {
+            fprintf(stderr, "Error: missing file-parameter.\n");
+            return 2;
+        }
         Options opts;
         init_options(&opts);
 
@@ -178,6 +194,11 @@ int main(int argc, char **argv)
     {
 
         const char *bin_filename = argv[2];
+        if (!bin_filename)
+        {
+            fprintf(stderr, "Error: missing file-parameter.\n");
+            return 2;
+        }
         Table tbl;
         Options opts;
 
